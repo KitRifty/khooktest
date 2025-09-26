@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+  from ambuild2.context import Context
+  builder: Context
+
+import os, json
+
+class TestProgramConfig(object):
+  def __init__(self):
+    self.all_targets = []
+    self.target_archs = set()
+    self.libsafetyhook = {}
+    self.libkhook = {}
+
+    if builder.options.targets:
+      target_archs = builder.options.targets.split(',')
+    else:
+      target_archs = ['x86', 'x86_64']
+
+    for arch in target_archs:
+        try:
+            cxx = builder.DetectCxx(target_arch = arch)
+            self.target_archs.add(cxx.target.arch)
+        except Exception as e:
+            # Error if archs were manually overridden.
+            if builder.options.targets:
+                raise
+            print('Skipping target {}: {}'.format(arch, e))
+            continue
+        self.all_targets.append(cxx)
+
+    if not self.all_targets:
+        raise Exception('No suitable C/C++ compiler was found.')
+    
+  def configure(self):
+    allowed_archs = ['x86','x86_64']
+
+    if not set(self.target_archs).issubset(allowed_archs):
+      raise Exception('Unknown target architecture: {0}'.format(self.target_archs))
+
+    for cxx in self.all_targets:
+        self.configure_cxx(cxx)
+
+  def configure_cxx(self, cxx):
+    if cxx.family == 'msvc':
+      if cxx.version < 1928 and builder.options.generator != 'vs':
+        raise Exception(f'Only MSVC 2019 16.9 and later are supported, full C++20 support is required. ({str(cxx.version)} < 1928)')
+    elif cxx.family == 'gcc':
+      if cxx.version < 'gcc-8':
+        raise Exception('Only GCC versions 8 or later are supported, full C++20 support is required.')
+    elif cxx.family == 'clang':
+      if cxx.version < 'clang-8':
+        raise Exception('Only clang versions 8 or later are supported, full C++20 support is required.')
+
+    if cxx.like('gcc'):
+      self.configure_gcc(cxx)
+    elif cxx.family == 'msvc':
+      self.configure_msvc(cxx)
+
+    # Optimization
+    if builder.options.opt == '1':
+      cxx.defines += ['NDEBUG']
+
+    # Debugging
+    if builder.options.debug == '1':
+      cxx.defines += ['DEBUG', '_DEBUG']
+
+    # Platform-specifics
+    if cxx.target.platform == 'linux':
+      self.configure_linux(cxx)
+    elif cxx.target.platform == 'mac':
+      self.configure_mac(cxx)
+    elif cxx.target.platform == 'windows':
+      self.configure_windows(cxx)
+
+  def configure_gcc(self, cxx):
+    cxx.defines += [
+      'stricmp=strcasecmp',
+      '_stricmp=strcasecmp',
+      '_snprintf=snprintf',
+      '_vsnprintf=vsnprintf',
+      'HAVE_STDINT_H',
+      'GNUC',
+    ]
+    cxx.cflags += [
+      '-pipe',
+      '-fno-strict-aliasing',
+      '-Wall',
+      '-Werror',
+      '-Wno-unused',
+      '-Wno-switch',
+      '-Wno-array-bounds',
+      '-Wno-unknown-pragmas',
+      '-Wno-dangling-else',
+      '-Wno-return-type-c-linkage',
+      '-Wno-ignored-attributes',
+      '-Wno-deprecated-declarations',
+      '-fvisibility=hidden',
+    ]
+
+    if cxx.target.arch in ['x86', 'x86_64']:
+      cxx.cflags += ['-msse']
+
+    cxx.cxxflags += ['-std=c++17']
+
+    cxx.cxxflags += [
+      '-fno-threadsafe-statics',
+      '-Wno-non-virtual-dtor',
+      '-Wno-overloaded-virtual',
+      '-Wno-register',
+      '-Wno-reorder',
+      '-fvisibility-inlines-hidden'
+    ]
+    
+    have_gcc = cxx.family == 'gcc'
+    have_clang = cxx.family == 'clang'
+
+    if cxx.version >= 'clang-3.9' or cxx.version == 'clang-3.4' or cxx.version > 'apple-clang-6.0':
+      cxx.cxxflags += ['-Wno-expansion-to-defined']
+    if cxx.version == 'clang-3.9' or cxx.version == 'apple-clang-8.0':
+      cxx.cflags += ['-Wno-varargs']
+    if cxx.version >= 'clang-3.4' or cxx.version >= 'apple-clang-7.0':
+      cxx.cxxflags += ['-Wno-inconsistent-missing-override']
+    if cxx.version >= 'clang-2.9' or cxx.version >= 'apple-clang-3.0':
+      cxx.cxxflags += ['-Wno-null-dereference']
+    if have_clang or (cxx.version >= 'gcc-4.6'):
+      cxx.cflags += ['-Wno-narrowing']
+    if have_clang or (cxx.version >= 'gcc-4.7'):
+      cxx.cxxflags += ['-Wno-delete-non-virtual-dtor']
+    if cxx.version >= 'gcc-4.8':
+      cxx.cflags += ['-Wno-unused-result']
+    if cxx.version >= 'gcc-9.0':
+      cxx.cxxflags += ['-Wno-class-memaccess', '-Wno-packed-not-aligned']
+
+    if have_clang:
+      cxx.cxxflags += [
+        '-Wno-implicit-exception-spec-mismatch',
+        '-Wno-null-arithmetic',
+        '-Wno-null-conversion'
+      ]
+      if cxx.version >= 'apple-clang-5.1' or cxx.version >= 'clang-3.4':
+        cxx.cxxflags += ['-Wno-deprecated-register']
+      else:
+        cxx.cxxflags += ['-Wno-deprecated']
+      cxx.cflags += ['-Wno-sometimes-uninitialized']
+
+    # Work around SDK warnings.
+    if cxx.version >= 'clang-10.0' or cxx.version >= 'apple-clang-12.0':
+        cxx.cflags += [
+            '-Wno-implicit-int-float-conversion',
+            '-Wno-tautological-overlap-compare',
+        ]
+
+    if have_gcc:
+      cxx.cflags += ['-mfpmath=sse']
+      cxx.cflags += ['-Wno-maybe-uninitialized']
+
+    if builder.options.opt == '1':
+        cxx.cflags += ['-O3']
+
+    # Don't omit the frame pointer.
+    cxx.cflags += ['-fno-omit-frame-pointer']
+
+  def configure_msvc(self, cxx):
+
+    if builder.options.debug == '1':
+      cxx.cflags += ['/MTd']
+      cxx.linkflags += ['/NODEFAULTLIB:libcmt']
+    else:
+      cxx.cflags += ['/MT']
+    cxx.defines += [
+      '_CRT_SECURE_NO_DEPRECATE',
+      '_CRT_SECURE_NO_WARNINGS',
+      '_CRT_NONSTDC_NO_DEPRECATE',
+      '_ITERATOR_DEBUG_LEVEL=0',
+    ]
+    cxx.cflags += [
+      '/W3',
+    ]
+    cxx.cxxflags += [
+      '/EHsc',
+      '/GR-',
+      '/TP',
+      '/std:c++17',
+    ]
+    cxx.linkflags += [
+      'kernel32.lib',
+      'user32.lib',
+      'gdi32.lib',
+      'winspool.lib',
+      'comdlg32.lib',
+      'advapi32.lib',
+      'shell32.lib',
+      'ole32.lib',
+      'oleaut32.lib',
+      'uuid.lib',
+      'odbc32.lib',
+      'odbccp32.lib',
+    ]
+
+    if builder.options.opt == '1':
+      cxx.cflags += ['/Ox', '/Zo']
+      cxx.linkflags += ['/OPT:ICF', '/OPT:REF']
+
+    if builder.options.debug == '1':
+      cxx.cflags += ['/Od', '/RTC1']
+
+    # This needs to be after our optimization flags which could otherwise disable it.
+    # Don't omit the frame pointer.
+    cxx.cflags += ['/Oy-']
+
+  def configure_linux(self, cxx):
+    cxx.defines += ['LINUX', '_LINUX', 'POSIX', '_FILE_OFFSET_BITS=64']
+    cxx.linkflags += ['-lm']
+    if cxx.family == 'clang':
+      cxx.linkflags += ['-lgcc_eh']
+    cxx.linkflags += [
+      '-static-libgcc',
+      '-static-libstdc++'
+    ]
+
+  def configure_mac(self, cxx):
+    cxx.defines += ['OSX', '_OSX', 'POSIX', 'KE_ABSOLUTELY_NO_STL']
+    cxx.cflags += ['-mmacosx-version-min=10.15']
+    cxx.linkflags += [
+      '-mmacosx-version-min=10.15',
+      '-stdlib=libc++',
+      '-lc++',
+    ]
+    cxx.cxxflags += ['-stdlib=libc++']
+
+  def configure_windows(self, cxx):
+    cxx.defines += ['WIN32', '_WINDOWS']
+
+  def AddKHook(self, binary):
+    binary.compiler.cxxincludes += [os.path.join(builder.sourcePath, 'third_party', 'KHook', 'include')]
+    binary.compiler.cxxdefines += ['KHOOK_STANDALONE','KHOOK_EXPORT']
+
+    for task in self.libkhook:
+      if task.target.arch == binary.compiler.target.arch:
+        binary.compiler.linkflags += [task.binary]
+    for task in self.libsafetyhook:
+      if task.target.arch == binary.compiler.target.arch:
+        binary.compiler.linkflags += [task.binary]
+
+TestProgram = TestProgramConfig()
+TestProgram.configure()
+
+# This will clone the list and each cxx object as we recurse, preventing child
+# scripts from messing up global state.
+builder.targets = builder.CloneableList(TestProgram.all_targets)
+
+builder.Build(['third_party/KHook/AMBuilder', 'third_party/KHook/third_party/safetyhook/AMBuilder'], {'KHook': TestProgram, 'SafetyHook': TestProgram})
+
+BuildScripts = [
+  'src/AMBuilder'
+]
+
+builder.Build(BuildScripts, { 'TestProgram': TestProgram })
