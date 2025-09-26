@@ -45,7 +45,7 @@ NOINLINE bool __thiscall TestDetour_CallOriginal(TestClass* ptr, TestObject* obj
     std::cout << "obj: " << std::hex << obj << std::endl;
     auto original = (bool(__thiscall*)(TestClass*, TestObject*))KHook::GetOriginalFunction();
     bool result = original(ptr, obj);
-    KHook::SaveReturnValue(KHook::Action::Override, &result, sizeof(bool), bool_copy, bool_dtor, true);
+    KHook::SaveReturnValue(KHook::Action::Ignore, &result, sizeof(bool), bool_copy, bool_dtor, true);
     return false;
 }
 
