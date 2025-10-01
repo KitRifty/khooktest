@@ -18,6 +18,8 @@ class TestClass {
 public:
     NOINLINE bool IsAllowed(TestObject* obj) {
         std::cout << "TestClass::IsAllowed()" << std::endl;
+        std::cout << "this: " << std::hex << this << std::endl;
+        std::cout << "obj: " << std::hex << obj << std::endl;
         return true;
     }
 };
@@ -96,6 +98,20 @@ int main() {
     bool result = target->IsAllowed(obj);
 
     std::cout << "returned: " << result << std::endl;
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    KHook::RemoveHook(hookId, true);
+
+    std::cout << "hook removed" << std::endl;
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    std::cout << "target: " << std::hex << target << std::endl;
+    std::cout << "obj: " << std::hex << obj << std::endl;
+
+    result = target->IsAllowed(obj);
+    std::cout << "returned after unhook: " << result << std::endl;
 
     delete obj;
     delete target;
