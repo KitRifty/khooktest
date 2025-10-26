@@ -1,19 +1,22 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
   from ambuild2.context import Context
   builder: Context
-  TestProgram: object
+  TestRunner: object
 
 import os
 
-projectName = 'testprogram_exec' 
+projectName = 'testrunner' 
 
 for cxx in builder.targets:
   binary = cxx.Program(projectName)
-  TestProgram.AddKHook(binary)
+  TestRunner.AddKHook(binary)
+  TestRunner.AddGTest(binary)
   binary.sources += [
-    'main.cpp'
+    'main.cpp',
+    'virtual.cpp'
   ]
-  builder.Add(binary)
+  
+  TestRunner.binaries += [ builder.Add(binary) ]

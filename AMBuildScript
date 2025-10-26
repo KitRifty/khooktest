@@ -1,18 +1,20 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
   from ambuild2.context import Context
   builder: Context
 
-import os, json
+import os
 
-class TestProgramConfig(object):
+class TestRunnerConfig(object):
   def __init__(self):
     self.all_targets = []
     self.target_archs = set()
+    self.binaries = []
     self.libsafetyhook = {}
     self.libkhook = {}
+    self.libgtest = {}
 
     if builder.options.targets:
       target_archs = builder.options.targets.split(',')
@@ -98,6 +100,7 @@ class TestProgramConfig(object):
       '-Wno-ignored-attributes',
       '-Wno-deprecated-declarations',
       '-fvisibility=hidden',
+      '-fPIC'
     ]
 
     if cxx.target.arch in ['x86', 'x86_64']:
@@ -234,8 +237,17 @@ class TestProgramConfig(object):
   def configure_windows(self, cxx):
     cxx.defines += ['WIN32', '_WINDOWS']
 
+  def AddGTest(self, binary):
+    binary.compiler.includes += [
+      os.path.join(builder.sourcePath, 'third_party', 'googletest', 'googletest', 'include')
+    ]
+
+    for task in self.libgtest:
+      if task.target.arch == binary.compiler.target.arch:
+        binary.compiler.linkflags += [task.binary]
+
   def AddKHook(self, binary):
-    binary.compiler.cxxincludes += [os.path.join(builder.sourcePath, 'third_party', 'KHook', 'include')]
+    binary.compiler.cxxincludes += [os.path.join(builder.sourcePath, 'third_party', 'khook', 'include')]
     binary.compiler.cxxdefines += ['KHOOK_STANDALONE','KHOOK_EXPORT']
 
     for task in self.libkhook:
@@ -245,17 +257,19 @@ class TestProgramConfig(object):
       if task.target.arch == binary.compiler.target.arch:
         binary.compiler.linkflags += [task.binary]
 
-TestProgram = TestProgramConfig()
-TestProgram.configure()
+TestRunner = TestRunnerConfig()
+TestRunner.configure()
 
 # This will clone the list and each cxx object as we recurse, preventing child
 # scripts from messing up global state.
-builder.targets = builder.CloneableList(TestProgram.all_targets)
+builder.targets = builder.CloneableList(TestRunner.all_targets)
 
-builder.Build(['third_party/KHook/AMBuilder', 'third_party/KHook/third_party/safetyhook/AMBuilder'], {'KHook': TestProgram, 'SafetyHook': TestProgram})
+builder.Build(['third_party/AMBuilder.gtest'], {'GTest': TestRunner})
+builder.Build(['third_party/khook/AMBuilder', 'third_party/khook/third_party/safetyhook/AMBuilder'], {'KHook': TestRunner, 'SafetyHook': TestRunner})
 
 BuildScripts = [
-  'src/AMBuilder'
+  'src/AMBuilder',
+  'PackageScript'
 ]
 
-builder.Build(BuildScripts, { 'TestProgram': TestProgram })
+builder.Build(BuildScripts, { 'TestRunner': TestRunner })

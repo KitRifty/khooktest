@@ -8,7 +8,7 @@
             "name": "(Windows) Launch x64",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/src/testprogram_exec/windows-x86_64/testprogram_exec.exe",
+            "program": "${workspaceFolder}/build/package/x86_64/testrunner.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

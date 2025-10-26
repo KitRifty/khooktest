@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+  from ambuild2.context import Context
+  builder: Context
+  TestRunner: object
+
+import os
+
+# This is where the files will be output to
+# package is the default
+builder.SetBuildFolder('package')
+
+folder_list = [
+  'x86',
+  'x86_64'
+]
+
+folder_map = {}
+for folder in folder_list:
+  norm_folder = os.path.normpath(folder)
+  folder_map[folder] = builder.AddFolder(norm_folder)
+
+for cxx_task in TestRunner.binaries:
+  if cxx_task.target.arch == 'x86_64':
+    builder.AddCopy(cxx_task.binary, folder_map['x86_64'])
+  else:
+    builder.AddCopy(cxx_task.binary, folder_map['x86'])
