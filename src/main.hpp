@@ -8,6 +8,3 @@
 #else
     #define NOINLINE
 #endif
-
-NOINLINE void bool_copy(bool* dst, bool* src);
-NOINLINE void bool_dtor(bool* ptr);
