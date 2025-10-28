@@ -11,6 +11,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        arch: [x86, x86_64]
         include:
           - os: ubuntu-latest
             cc: clang
@@ -19,7 +20,7 @@ jobs:
             cc: msvc
       fail-fast: false
 
-    name: ${{ matrix.os }} - ${{ matrix.cc }}
+    name: Test (${{ matrix.os }}, ${{ matrix.cc }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -62,17 +63,11 @@ jobs:
       run: |
         mkdir build
         cd build
-        python ../configure.py --targets x86,x86_64
+        python ../configure.py --targets ${{ matrix.arch }}
         ambuild
 
-    - name: Test (x86)
+    - name: Test
       run: |
         python third_party/gtest-parallel/gtest-parallel \
-          --gtest_color=yes \
-          ./build/package/x86/testrunner
-
-    - name: Test (x86_64)
-      run: |
-        python third_party/gtest-parallel/gtest-parallel \
-          --gtest_color=yes \
-          ./build/package/x86_64/testrunner
+          ./build/package/${{ matrix.arch }}/testrunner \
+          --timeout 10

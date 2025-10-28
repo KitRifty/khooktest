@@ -21,7 +21,9 @@
             "command": "python",
             "args": [
                 "${workspaceFolder}/third_party/gtest-parallel/gtest-parallel",
-                "${workspaceFolder}/build/package/x86_64/testrunner"
+                "${workspaceFolder}/build/package/x86_64/testrunner",
+                "--timeout",
+                "10"
             ],
             "group": {
                 "kind": "test",
