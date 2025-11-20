@@ -16,6 +16,7 @@ for cxx in builder.targets:
   TestRunner.AddGTest(binary)
   binary.sources += [
     'main.cpp',
+    'static.cpp',
     'virtual.cpp'
   ]
   

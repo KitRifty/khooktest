@@ -6,7 +6,7 @@
 
 #include "main.hpp"
 
-class VirtualHookTest: public ::testing::Test {
+class StaticHookTest: public ::testing::Test {
   protected:
     class TestObject {
       public:
@@ -15,29 +15,29 @@ class VirtualHookTest: public ::testing::Test {
 
     class HookedClass {
       public:
-        virtual bool IsAllowed(TestObject* obj) {
+        NOINLINE static bool IsAllowed(TestObject* obj) {
             std::cout << "HookedClass::IsAllowed()" << std::endl;
             return true;
         }
 
-        virtual int SetObjectValue(TestObject* obj, int value) {
+        NOINLINE static int SetObjectValue(TestObject* obj, int value) {
             std::cout << "HookedClass::SetObjectValue()" << std::endl;
             obj->m_testValue = value;
             return value;
         }
 
-        virtual void MyVoid(TestObject* obj) {
+        NOINLINE static void MyVoid(TestObject* obj) {
             std::cout << "HookedClass::MyVoid()" << std::endl;
         }
     };
 
-    using IsAllowedNoopHook = NoopMemberHookTemplate<bool, TestObject*>;
-    using SetObjectValueNoopHook = NoopMemberHookTemplate<int, TestObject*, int>;
-    using MyVoidNoopHook = NoopMemberHookTemplate<void, TestObject*>;
+    using IsAllowedNoopHook = NoopStaticHookTemplate<bool, TestObject*>;
+    using SetObjectValueNoopHook = NoopStaticHookTemplate<int, TestObject*, int>;
+    using MyVoidNoopHook = NoopStaticHookTemplate<void, TestObject*>;
 
     class FakeClass {
       public:
-        NOINLINE bool OverrideIsAllowedReturnValue(TestObject* obj) {
+        NOINLINE static bool OverrideIsAllowedReturnValue(TestObject* obj) {
             std::cout << "OverrideReturnValue()" << std::endl;
             bool result = false;
             KHook::SaveReturnValue(
@@ -51,7 +51,7 @@ class VirtualHookTest: public ::testing::Test {
             return false;
         }
 
-        NOINLINE bool SupersedeIsAllowedReturnValue(TestObject* obj) {
+        NOINLINE static bool SupersedeIsAllowedReturnValue(TestObject* obj) {
             std::cout << "SupersedeReturnValue()" << std::endl;
             bool result = false;
             KHook::SaveReturnValue(
@@ -65,8 +65,8 @@ class VirtualHookTest: public ::testing::Test {
             return false;
         }
 
-        NOINLINE int OverrideSetObjectValue(TestObject* obj, int value) {
-            auto recall = KHook::BuildMFP<FakeClass, int, TestObject*, int>(
+        NOINLINE static int OverrideSetObjectValue(TestObject* obj, int value) {
+            auto recall = reinterpret_cast<int(*)(TestObject*, int)>(
                 KHook::DoRecall(
                     KHook::Action::Ignore,
                     nullptr,
@@ -75,11 +75,11 @@ class VirtualHookTest: public ::testing::Test {
                     nullptr
                 )
             );
-            (this->*recall)(obj, 1337);
+            recall(obj, 1337);
             return 0;
         }
 
-        NOINLINE int SupersedeSetObjectValue(TestObject* obj, int value) {
+        NOINLINE static int SupersedeSetObjectValue(TestObject* obj, int value) {
             std::cout << "SupersedeSetObjectValue()" << std::endl;
             int newValue = 9001;
             KHook::SaveReturnValue(
@@ -93,16 +93,15 @@ class VirtualHookTest: public ::testing::Test {
             return 0;
         }
 
-        NOINLINE int HookInsideSetObjectValue(TestObject* obj, int value) {
-            m_hookId = KHook::SetupVirtualHook(
-                *(void***)(this),
-                KHook::GetVtableIndex(&HookedClass::IsAllowed),
+        NOINLINE static int HookInsideSetObjectValue(TestObject* obj, int value) {
+            m_hookId = KHook::SetupHook(
+                (void*)&HookedClass::IsAllowed,
                 nullptr,
-                KHook::ExtractMFP(&IsAllowedNoopHook::OnRemoved),
-                KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-                KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-                KHook::ExtractMFP(&IsAllowedNoopHook::MakeReturn),
-                KHook::ExtractMFP(&IsAllowedNoopHook::CallOriginal),
+                (void*)&IsAllowedNoopHook::OnRemoved,
+                (void*)&IsAllowedNoopHook::PrePostNoop,
+                (void*)&IsAllowedNoopHook::PrePostNoop,
+                (void*)&IsAllowedNoopHook::MakeReturn,
+                (void*)&IsAllowedNoopHook::CallOriginal,
                 false
             );
             KHook::SaveReturnValue(
@@ -116,7 +115,7 @@ class VirtualHookTest: public ::testing::Test {
             return 0;
         }
 
-        NOINLINE void SupersedeMyVoid(TestObject* obj) {
+        NOINLINE static void SupersedeMyVoid(TestObject* obj) {
             std::cout << "SupersedeMyVoid()" << std::endl;
             KHook::SaveReturnValue(
                 KHook::Action::Supersede,
@@ -131,7 +130,6 @@ class VirtualHookTest: public ::testing::Test {
 
   protected:
     void SetUp() override {
-        target = new HookedClass();
         obj = new TestObject();
     }
 
@@ -140,29 +138,23 @@ class VirtualHookTest: public ::testing::Test {
             delete obj;
             obj = nullptr;
         }
-        if (target) {
-            delete target;
-            target = nullptr;
-        }
     }
 
-    HookedClass* target = nullptr;
     TestObject* obj = nullptr;
     static int m_hookId;
 };
 
-int VirtualHookTest::m_hookId = KHook::INVALID_HOOK;
+int StaticHookTest::m_hookId = KHook::INVALID_HOOK;
 
-TEST_F(VirtualHookTest, Noop) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::IsAllowed),
+TEST_F(StaticHookTest, Noop) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::IsAllowed,
         nullptr,
-        KHook::ExtractMFP(&IsAllowedNoopHook::OnRemoved),
-        KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&IsAllowedNoopHook::MakeReturn),
-        KHook::ExtractMFP(&IsAllowedNoopHook::CallOriginal),
+        (void*)&IsAllowedNoopHook::OnRemoved,
+        (void*)&IsAllowedNoopHook::PrePostNoop,
+        (void*)&IsAllowedNoopHook::PrePostNoop,
+        (void*)&IsAllowedNoopHook::MakeReturn,
+        (void*)&IsAllowedNoopHook::CallOriginal,
         false
     );
 
@@ -170,11 +162,11 @@ TEST_F(VirtualHookTest, Noop) {
 
     testing::internal::CaptureStdout();
 
-    bool overriddenResult = target->IsAllowed(obj);
+    bool overriddenResult = HookedClass::IsAllowed(obj);
 
     KHook::RemoveHook(hookId, false);
 
-    bool originalResult = target->IsAllowed(obj);
+    bool originalResult = HookedClass::IsAllowed(obj);
 
     std::string output = testing::internal::GetCapturedStdout();
 
@@ -195,16 +187,15 @@ TEST_F(VirtualHookTest, Noop) {
         << "Method should return original value after hook removal";
 }
 
-TEST_F(VirtualHookTest, NoopVoid) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+TEST_F(StaticHookTest, NoopVoid) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
@@ -212,11 +203,11 @@ TEST_F(VirtualHookTest, NoopVoid) {
 
     testing::internal::CaptureStdout();
 
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
 
     KHook::RemoveHook(hookId, false);
 
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
 
     std::string output = testing::internal::GetCapturedStdout();
 
@@ -233,64 +224,61 @@ TEST_F(VirtualHookTest, NoopVoid) {
         << "Callback functions should be called in the expected order";
 }
 
-TEST_F(VirtualHookTest, OverrideReturnValuePre) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::IsAllowed),
+TEST_F(StaticHookTest, OverrideReturnValuePre) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::IsAllowed,
         nullptr,
-        KHook::ExtractMFP(&IsAllowedNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::OverrideIsAllowedReturnValue),
-        KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&IsAllowedNoopHook::MakeReturn),
-        KHook::ExtractMFP(&IsAllowedNoopHook::CallOriginal),
+        (void*)&IsAllowedNoopHook::OnRemoved,
+        (void*)&FakeClass::OverrideIsAllowedReturnValue,
+        (void*)&IsAllowedNoopHook::PrePostNoop,
+        (void*)&IsAllowedNoopHook::MakeReturn,
+        (void*)&IsAllowedNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(hookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    bool result = target->IsAllowed(obj);
+    bool result = HookedClass::IsAllowed(obj);
     EXPECT_FALSE(result) << "Method should return false when hooked";
 
     KHook::RemoveHook(hookId, false);
 
-    result = target->IsAllowed(obj);
+    result = HookedClass::IsAllowed(obj);
     EXPECT_TRUE(result) << "Method should return true after hook removal";
 }
 
-TEST_F(VirtualHookTest, OverrideReturnValuePost) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::IsAllowed),
+TEST_F(StaticHookTest, OverrideReturnValuePost) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::IsAllowed,
         nullptr,
-        KHook::ExtractMFP(&IsAllowedNoopHook::OnRemoved),
-        KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&FakeClass::OverrideIsAllowedReturnValue),
-        KHook::ExtractMFP(&IsAllowedNoopHook::MakeReturn),
-        KHook::ExtractMFP(&IsAllowedNoopHook::CallOriginal),
+        (void*)&IsAllowedNoopHook::OnRemoved,
+        (void*)&IsAllowedNoopHook::PrePostNoop,
+        (void*)&FakeClass::OverrideIsAllowedReturnValue,
+        (void*)&IsAllowedNoopHook::MakeReturn,
+        (void*)&IsAllowedNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(hookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    bool result = target->IsAllowed(obj);
+    bool result = HookedClass::IsAllowed(obj);
     EXPECT_FALSE(result) << "Method should return false when hooked";
 
     KHook::RemoveHook(hookId, false);
 
-    result = target->IsAllowed(obj);
+    result = HookedClass::IsAllowed(obj);
     EXPECT_TRUE(result) << "Method should return true after hook removal";
 }
 
-TEST_F(VirtualHookTest, SupersedeReturnValue) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::IsAllowed),
+TEST_F(StaticHookTest, SupersedeReturnValue) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::IsAllowed,
         nullptr,
-        KHook::ExtractMFP(&IsAllowedNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::SupersedeIsAllowedReturnValue),
-        KHook::ExtractMFP(&IsAllowedNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&IsAllowedNoopHook::MakeReturn),
-        KHook::ExtractMFP(&IsAllowedNoopHook::CallOriginal),
+        (void*)&IsAllowedNoopHook::OnRemoved,
+        (void*)&FakeClass::SupersedeIsAllowedReturnValue,
+        (void*)&IsAllowedNoopHook::PrePostNoop,
+        (void*)&IsAllowedNoopHook::MakeReturn,
+        (void*)&IsAllowedNoopHook::CallOriginal,
         false
     );
 
@@ -298,11 +286,11 @@ TEST_F(VirtualHookTest, SupersedeReturnValue) {
 
     testing::internal::CaptureStdout();
 
-    bool overriddenResult = target->IsAllowed(obj);
+    bool overriddenResult = HookedClass::IsAllowed(obj);
 
     KHook::RemoveHook(hookId, false);
 
-    bool originalResult = target->IsAllowed(obj);
+    bool originalResult = HookedClass::IsAllowed(obj);
 
     std::string output = testing::internal::GetCapturedStdout();
 
@@ -313,16 +301,15 @@ TEST_F(VirtualHookTest, SupersedeReturnValue) {
         << "Method should return true after hook removal";
 }
 
-TEST_F(VirtualHookTest, SupersedeVoidReturnValue) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+TEST_F(StaticHookTest, SupersedeVoidReturnValue) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::SupersedeMyVoid),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&FakeClass::SupersedeMyVoid,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
@@ -330,7 +317,7 @@ TEST_F(VirtualHookTest, SupersedeVoidReturnValue) {
 
     testing::internal::CaptureStdout();
 
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
 
     std::string output = testing::internal::GetCapturedStdout();
 
@@ -347,7 +334,7 @@ TEST_F(VirtualHookTest, SupersedeVoidReturnValue) {
 
     testing::internal::CaptureStdout();
 
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
 
     output = testing::internal::GetCapturedStdout();
 
@@ -359,66 +346,63 @@ TEST_F(VirtualHookTest, SupersedeVoidReturnValue) {
     }
 }
 
-TEST_F(VirtualHookTest, OverrideParameterWithRecall) {
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::SetObjectValue),
+TEST_F(StaticHookTest, OverrideParameterWithRecall) {
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::SetObjectValue,
         nullptr,
-        KHook::ExtractMFP(&SetObjectValueNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::OverrideSetObjectValue),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::MakeReturn),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::CallOriginal),
+        (void*)&SetObjectValueNoopHook::OnRemoved,
+        (void*)&FakeClass::OverrideSetObjectValue,
+        (void*)&SetObjectValueNoopHook::PrePostNoop,
+        (void*)&SetObjectValueNoopHook::MakeReturn,
+        (void*)&SetObjectValueNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(hookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    int result = target->SetObjectValue(obj, 0xDEADBEEF);
+    int result = HookedClass::SetObjectValue(obj, 0xDEADBEEF);
     EXPECT_EQ(obj->m_testValue, 1337)
         << "Method should set value to hooked value";
     EXPECT_EQ(result, 1337) << "Method should return hooked value";
 
     KHook::RemoveHook(hookId, false);
 
-    result = target->SetObjectValue(obj, 0xDEADBEEF);
+    result = HookedClass::SetObjectValue(obj, 0xDEADBEEF);
     EXPECT_EQ(obj->m_testValue, 0xDEADBEEF)
         << "Method should set value to original value after hook removal";
     EXPECT_EQ(result, 0xDEADBEEF)
         << "Method should return original value after hook removal";
 }
 
-TEST_F(VirtualHookTest, SupersedeThenNoopVoidHooksOnSameIndex) {
-    int firstHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+TEST_F(StaticHookTest, SupersedeThenNoopVoidHooksOnSameFunction) {
+    int firstHookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::SupersedeMyVoid),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&FakeClass::SupersedeMyVoid,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(firstHookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    int secondHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+    int secondHookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(secondHookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
     testing::internal::CaptureStdout();
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
     std::string output = testing::internal::GetCapturedStdout();
 
     {
@@ -436,7 +420,7 @@ TEST_F(VirtualHookTest, SupersedeThenNoopVoidHooksOnSameIndex) {
     KHook::RemoveHook(firstHookId, false);
 
     testing::internal::CaptureStdout();
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
     output = testing::internal::GetCapturedStdout();
 
     {
@@ -452,37 +436,35 @@ TEST_F(VirtualHookTest, SupersedeThenNoopVoidHooksOnSameIndex) {
     }
 }
 
-TEST_F(VirtualHookTest, MultipleNoopVoidHooksOnSameIndex) {
-    int firstHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+TEST_F(StaticHookTest, MultipleNoopVoidHooksOnSameFunction) {
+    int firstHookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(firstHookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    int secondHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::MyVoid),
+    int secondHookId = KHook::SetupHook(
+        (void*)&HookedClass::MyVoid,
         nullptr,
-        KHook::ExtractMFP(&MyVoidNoopHook::OnRemoved),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&MyVoidNoopHook::MakeReturn),
-        KHook::ExtractMFP(&MyVoidNoopHook::CallOriginal),
+        (void*)&MyVoidNoopHook::OnRemoved,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::PrePostNoop,
+        (void*)&MyVoidNoopHook::MakeReturn,
+        (void*)&MyVoidNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(secondHookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
     testing::internal::CaptureStdout();
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
     std::string output = testing::internal::GetCapturedStdout();
 
     {
@@ -502,7 +484,7 @@ TEST_F(VirtualHookTest, MultipleNoopVoidHooksOnSameIndex) {
     KHook::RemoveHook(firstHookId, false);
 
     testing::internal::CaptureStdout();
-    target->MyVoid(obj);
+    HookedClass::MyVoid(obj);
     output = testing::internal::GetCapturedStdout();
 
     {
@@ -518,30 +500,28 @@ TEST_F(VirtualHookTest, MultipleNoopVoidHooksOnSameIndex) {
     }
 }
 
-TEST_F(VirtualHookTest, SupersedeThenNoopHooksOnSameIndex) {
-    int firstHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::SetObjectValue),
+TEST_F(StaticHookTest, SupersedeThenNoopHooksOnSameFunction) {
+    int firstHookId = KHook::SetupHook(
+        (void*)&HookedClass::SetObjectValue,
         nullptr,
-        KHook::ExtractMFP(&SetObjectValueNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::SupersedeSetObjectValue),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::MakeReturn),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::CallOriginal),
+        (void*)&SetObjectValueNoopHook::OnRemoved,
+        (void*)&FakeClass::SupersedeSetObjectValue,
+        (void*)&SetObjectValueNoopHook::PrePostNoop,
+        (void*)&SetObjectValueNoopHook::MakeReturn,
+        (void*)&SetObjectValueNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(firstHookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    int secondHookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::SetObjectValue),
+    int secondHookId = KHook::SetupHook(
+        (void*)&HookedClass::SetObjectValue,
         nullptr,
-        KHook::ExtractMFP(&SetObjectValueNoopHook::OnRemoved),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::MakeReturn),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::CallOriginal),
+        (void*)&SetObjectValueNoopHook::OnRemoved,
+        (void*)&SetObjectValueNoopHook::PrePostNoop,
+        (void*)&SetObjectValueNoopHook::PrePostNoop,
+        (void*)&SetObjectValueNoopHook::MakeReturn,
+        (void*)&SetObjectValueNoopHook::CallOriginal,
         false
     );
 
@@ -550,7 +530,7 @@ TEST_F(VirtualHookTest, SupersedeThenNoopHooksOnSameIndex) {
     obj->m_testValue = 0x9600;
 
     testing::internal::CaptureStdout();
-    int result = target->SetObjectValue(obj, 0xDEADBEEF);
+    int result = HookedClass::SetObjectValue(obj, 0xDEADBEEF);
     std::string output = testing::internal::GetCapturedStdout();
 
     {
@@ -564,13 +544,13 @@ TEST_F(VirtualHookTest, SupersedeThenNoopHooksOnSameIndex) {
         ASSERT_EQ(expected.str(), output)
             << "Callback functions should be called in the correct order";
     }
-    
+
     KHook::RemoveHook(firstHookId, false);
 
     obj->m_testValue = 0x9600;
 
     testing::internal::CaptureStdout();
-    result = target->SetObjectValue(obj, 0xDEADBEEF);
+    result = HookedClass::SetObjectValue(obj, 0xDEADBEEF);
     output = testing::internal::GetCapturedStdout();
 
     {
@@ -590,7 +570,7 @@ TEST_F(VirtualHookTest, SupersedeThenNoopHooksOnSameIndex) {
     obj->m_testValue = 0x9600;
 
     testing::internal::CaptureStdout();
-    result = target->SetObjectValue(obj, 0xDEADBEEF);
+    result = HookedClass::SetObjectValue(obj, 0xDEADBEEF);
     output = testing::internal::GetCapturedStdout();
 
     EXPECT_EQ(output.find("CallOriginal()"), std::string::npos)
@@ -602,24 +582,23 @@ TEST_F(VirtualHookTest, SupersedeThenNoopHooksOnSameIndex) {
         << "Method should return original value after recall hook removal";
 }
 
-TEST_F(VirtualHookTest, HookIsAllowedInsideSetObjectValue) {
+TEST_F(StaticHookTest, HookIsAllowedInsideSetObjectValue) {
     m_hookId = KHook::INVALID_HOOK;
 
-    int hookId = KHook::SetupVirtualHook(
-        *(void***)(target),
-        KHook::GetVtableIndex(&HookedClass::SetObjectValue),
+    int hookId = KHook::SetupHook(
+        (void*)&HookedClass::SetObjectValue,
         nullptr,
-        KHook::ExtractMFP(&SetObjectValueNoopHook::OnRemoved),
-        KHook::ExtractMFP(&FakeClass::HookInsideSetObjectValue),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::PrePostNoop),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::MakeReturn),
-        KHook::ExtractMFP(&SetObjectValueNoopHook::CallOriginal),
+        (void*)&SetObjectValueNoopHook::OnRemoved,
+        (void*)&FakeClass::HookInsideSetObjectValue,
+        (void*)&SetObjectValueNoopHook::PrePostNoop,
+        (void*)&SetObjectValueNoopHook::MakeReturn,
+        (void*)&SetObjectValueNoopHook::CallOriginal,
         false
     );
 
     ASSERT_NE(hookId, KHook::INVALID_HOOK) << "Hook setup should succeed";
 
-    int firstResult = target->SetObjectValue(obj, 42);
+    int firstResult = HookedClass::SetObjectValue(obj, 42);
 
     EXPECT_EQ(obj->m_testValue, 42)
         << "SetObjectValue should set value to 42 (original behavior)";
@@ -628,6 +607,6 @@ TEST_F(VirtualHookTest, HookIsAllowedInsideSetObjectValue) {
     ASSERT_NE(m_hookId, KHook::INVALID_HOOK)
         << "IsAllowed hook should have been set up inside SetObjectValue";
 
-    bool result = target->IsAllowed(obj);
+    bool result = HookedClass::IsAllowed(obj);
     EXPECT_TRUE(result) << "IsAllowed should return true (original value)";
 }
